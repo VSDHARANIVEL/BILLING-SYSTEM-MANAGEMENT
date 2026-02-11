@@ -1,0 +1,150 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import sqlite3
+from datetime import datetime
+
+app = Flask(__name__)
+CORS(app)
+
+DB = "billing.db"
+
+# ---------- DATABASE ----------
+def get_db():
+    return sqlite3.connect(DB)
+
+def init_db():
+    con = get_db()
+    cur = con.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS bills(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_name TEXT,
+        phone TEXT,
+        total INTEGER,
+        time TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS bill_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER,
+        item TEXT,
+        qty INTEGER,
+        price INTEGER
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS incentives(
+        worker TEXT PRIMARY KEY,
+        items_sold INTEGER
+    )
+    """)
+
+    con.commit()
+    con.close()
+
+init_db()
+
+# ---------- SAVE BILL ----------
+@app.route("/generate_bill", methods=["POST"])
+def generate_bill():
+    data = request.json
+
+    con = get_db()
+    cur = con.cursor()
+
+    cur.execute(
+        "INSERT INTO bills(customer_name, phone, total, time) VALUES (?,?,?,?)",
+        (data["customer"], data["phone"], data["total"], datetime.now().strftime("%d-%m-%Y %H:%M"))
+    )
+    bill_id = cur.lastrowid
+
+    total_items = 0
+    for i in data["items"]:
+        cur.execute(
+            "INSERT INTO bill_items(bill_id, item, qty, price) VALUES (?,?,?,?)",
+            (bill_id, i["name"], i["qty"], i["total"])
+        )
+        total_items += i["qty"]
+
+    # incentive
+    worker = data.get("worker", "NA")
+    cur.execute("SELECT items_sold FROM incentives WHERE worker=?", (worker,))
+    row = cur.fetchone()
+
+    if row:
+        cur.execute(
+            "UPDATE incentives SET items_sold = items_sold + ? WHERE worker=?",
+            (total_items, worker)
+        )
+    else:
+        cur.execute(
+            "INSERT INTO incentives(worker, items_sold) VALUES (?,?)",
+            (worker, total_items)
+        )
+
+    con.commit()
+    con.close()
+
+    return jsonify({"status": "success", "bill_id": bill_id})
+
+# ---------- REPORT ----------
+@app.route("/report")
+def report():
+    con = get_db()
+    cur = con.cursor()
+
+    cur.execute("SELECT COUNT(*), SUM(total) FROM bills")
+    bills, sales = cur.fetchone()
+
+    cur.execute("SELECT SUM(qty) FROM bill_items")
+    items = cur.fetchone()[0]
+
+    con.close()
+
+    return jsonify({
+        "total_bills": bills or 0,
+        "total_sales": sales or 0,
+        "total_items": items or 0
+    })
+
+# ---------- CUSTOMER SEARCH ----------
+@app.route("/customer/<phone>")
+def customer(phone):
+    con = get_db()
+    cur = con.cursor()
+
+    cur.execute("SELECT id, time, total FROM bills WHERE phone=?", (phone,))
+    bills = cur.fetchall()
+
+    result = []
+    for b in bills:
+        cur.execute("SELECT item, qty FROM bill_items WHERE bill_id=?", (b[0],))
+        items = cur.fetchall()
+        result.append({
+            "time": b[1],
+            "total": b[2],
+            "items": items
+        })
+
+    con.close()
+    return jsonify(result)
+
+
+# ---------- INCENTIVES ----------
+@app.route("/incentives")
+def incentives():
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT worker, items_sold FROM incentives ORDER BY items_sold DESC")
+    data = cur.fetchall()
+    con.close()
+    return jsonify(data)
+
+
+# ---------- RUN ----------
+if __name__ == "__main__":
+    app.run(debug=True)
