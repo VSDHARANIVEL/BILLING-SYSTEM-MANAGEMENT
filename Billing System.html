@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Billing System </title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{margin:0;font-family:Segoe UI;background:#f3f4f6}
+.header{background:#5B5FD8;color:#fff;padding:15px;display:flex;justify-content:space-between}
+.container{display:flex}
+.sidebar{width:240px;background:#fff}
+.sidebar div{padding:14px;cursor:pointer}
+.sidebar .active{background:#EEF2FF;color:#5B5FD8;font-weight:600}
+.content{flex:1;padding:20px}
+.section{display:none}
+.section.active{display:block}
+.card{background:#fff;padding:15px;margin-bottom:15px;border-radius:6px}
+input{width:100%;padding:8px;margin-bottom:8px}
+button{padding:8px 14px;background:#5B5FD8;color:#fff;border:none;border-radius:5px;cursor:pointer}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid #ddd}
+.print{display:none}
+@media print{
+ body *{visibility:hidden}
+ .print,.print *{visibility:visible}
+ .print{position:absolute;left:0;top:0;width:100%}
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <h2>Billing System </h2>
+  <span id="clock"></span>
+</div>
+
+<div class="container">
+
+<div class="sidebar">
+  <div class="active" data-sec="billing">🧾 Billing</div>
+  <div data-sec="stock">📦 Stock</div>
+  <div data-sec="worker">👷 Workers</div>
+  <div data-sec="customer">👤 Customers</div>
+  <div data-sec="incentive">🏆 Incentives</div>
+  <div data-sec="report">📊 Reports</div>
+</div>
+
+<div class="content">
+
+<!-- BILLING -->
+<div id="billing" class="section active">
+  <div class="card">
+    <input id="cname" placeholder="Customer Name">
+    <input id="cphone" placeholder="Phone Number">
+    <input id="scode" placeholder="Item Code">
+    <input id="qty" placeholder="Quantity">
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
+      <tbody id="billTable"></tbody>
+    </table>
+    <h3>Total ₹ <span id="total">0</span></h3>
+    <input id="wno" placeholder="Worker No">
+    <button onclick="generateBill()">Generate Bill & Print</button>
+  </div>
+</div>
+
+<!-- STOCK -->
+<div id="stock" class="section">
+  <div class="card">
+    <input id="sc" placeholder="Item Code">
+    <input id="sn" placeholder="Item Name">
+    <input id="sp" placeholder="Price">
+    <input id="sq" placeholder="Quantity">
+    <button onclick="addStock()">Add Stock</button>
+  </div>
+  <table>
+    <thead><tr><th>Code</th><th>Name</th><th>Price</th><th>Qty</th></tr></thead>
+    <tbody id="stockTable"></tbody>
+  </table>
+</div>
+
+<!-- WORKERS -->
+<div id="worker" class="section">
+  <div class="card">
+    <input id="wn" placeholder="Worker No">
+    <input id="wname" placeholder="Worker Name">
+    <button onclick="addWorker()">Add Worker</button>
+  </div>
+  <table>
+    <thead><tr><th>No</th><th>Name</th></tr></thead>
+    <tbody id="workerTable"></tbody>
+  </table>
+</div>
+
+<!-- CUSTOMERS -->
+<div id="customer" class="section">
+  <div class="card">
+    <input id="searchPhone" placeholder="Customer Phone">
+    <button onclick="searchCustomer()">Search</button>
+  </div>
+  <div id="customerResult"></div>
+</div>
+
+<!-- INCENTIVES -->
+<div id="incentive" class="section">
+  <button onclick="clearIncentives()">Clear Incentives</button>
+  <table>
+    <thead><tr><th>Worker</th><th>Items Sold</th></tr></thead>
+    <tbody id="incTable"></tbody>
+  </table>
+</div>
+
+<!-- REPORT -->
+<div id="report" class="section">
+  <p>Total Bills: <b id="rb">0</b></p>
+  <p>Total Sales: ₹ <b id="rs">0</b></p>
+  <p>Total Items Sold: <b id="ri">0</b></p>
+</div>
+
+</div>
+</div>
+
+<div class="print" id="printArea"></div>
+
+<script>
+/* ===== ELEMENT DEFINITIONS (THIS FIXES INPUT ISSUE) ===== */
+const clock = document.getElementById("clock");
+const cname = document.getElementById("cname");
+const cphone = document.getElementById("cphone");
+const scode = document.getElementById("scode");
+const qty = document.getElementById("qty");
+const wno = document.getElementById("wno");
+const billTable = document.getElementById("billTable");
+const totalEl = document.getElementById("total");
+const printArea = document.getElementById("printArea");
+
+/* CLOCK */
+setInterval(()=>clock.textContent=new Date().toLocaleString(),1000);
+
+/* DATABASE */
+let stock = JSON.parse(localStorage.getItem("stock")) || {};
+let workers = JSON.parse(localStorage.getItem("workers")) || {};
+let bills = JSON.parse(localStorage.getItem("bills")) || [];
+let incentives = JSON.parse(localStorage.getItem("inc")) || {};
+let currentItems = [];
+
+function save(){
+ localStorage.setItem("stock",JSON.stringify(stock));
+ localStorage.setItem("workers",JSON.stringify(workers));
+ localStorage.setItem("bills",JSON.stringify(bills));
+ localStorage.setItem("inc",JSON.stringify(incentives));
+}
+
+/* DASHBOARD NAV */
+document.querySelectorAll(".sidebar div").forEach(btn=>{
+ btn.onclick=()=>{
+  document.querySelectorAll(".sidebar div").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById(btn.dataset.sec).classList.add("active");
+  if(btn.dataset.sec==="stock")loadStock();
+  if(btn.dataset.sec==="worker")loadWorkers();
+  if(btn.dataset.sec==="incentive")loadIncentives();
+  if(btn.dataset.sec==="report")loadReport();
+ };
+});
+
+/* ENTER KEY FLOW */
+cname.addEventListener("keydown",e=>e.key==="Enter"&&cphone.focus());
+cphone.addEventListener("keydown",e=>e.key==="Enter"&&scode.focus());
+scode.addEventListener("keydown",e=>e.key==="Enter"&&qty.focus());
+qty.addEventListener("keydown",e=>e.key==="Enter"&&addItem());
+wno.addEventListener("keydown",e=>e.key==="Enter"&&generateBill());
+
+/* BILLING */
+function addItem(){
+ let item = stock[scode.value];
+ if(!item){ alert("Invalid Item Code"); scode.focus(); return; }
+ let q = parseInt(qty.value);
+ if(!q || q<=0){ qty.focus(); return; }
+ let t = item.p * q;
+ currentItems.push({n:item.n,q,t});
+ item.q -= q;
+ scode.value="";
+ qty.value="";
+ scode.focus();      // RETURN HERE FOR NEXT ITEM
+ renderBill();
+}
+
+function renderBill(){
+ billTable.innerHTML="";
+ let sum=0;
+ currentItems.forEach(i=>{
+  sum+=i.t;
+  billTable.innerHTML+=`<tr><td>${i.n}</td><td>${i.q}</td><td>${i.t}</td></tr>`;
+ });
+ totalEl.textContent=sum;
+}
+
+function generateBill(){
+ if(currentItems.length===0) return;
+ let bill={phone:cphone.value,items:[...currentItems],total:+totalEl.textContent};
+ bills.push(bill);
+ incentives[wno.value]=(incentives[wno.value]||0)+currentItems.reduce((s,i)=>s+i.q,0);
+ save();
+ printArea.innerHTML=`<h2>Bill</h2>${bill.items.map(i=>`${i.n} x ${i.q} = ₹${i.t}`).join("<br>")}<h3>Total ₹${bill.total}</h3>`;
+ window.print();
+ currentItems=[];
+ renderBill();
+}
+
+/* STOCK */
+function addStock(){ stock[sc.value]={n:sn.value,p:+sp.value,q:+sq.value}; save(); loadStock(); }
+function loadStock(){
+ stockTable.innerHTML="";
+ for(let k in stock){
+  let s=stock[k];
+  stockTable.innerHTML+=`<tr><td>${k}</td><td>${s.n}</td><td>${s.p}</td><td>${s.q}</td></tr>`;
+ }
+}
+
+/* WORKERS */
+function addWorker(){ workers[wn.value]=wname.value; save(); loadWorkers(); }
+function loadWorkers(){
+ workerTable.innerHTML="";
+ for(let w in workers){
+  workerTable.innerHTML+=`<tr><td>${w}</td><td>${workers[w]}</td></tr>`;
+ }
+}
+
+/* CUSTOMERS */
+function searchCustomer(){
+ let res=bills.filter(b=>b.phone===searchPhone.value);
+ customerResult.innerHTML=res.map(b=>`<div class="card">${b.items.map(i=>`${i.n} (${i.q})`).join("<br>")}<hr>Total ₹${b.total}</div>`).join("") || "No Records";
+}
+
+/* INCENTIVES */
+function loadIncentives(){
+ incTable.innerHTML="";
+ Object.entries(incentives).sort((a,b)=>b[1]-a[1])
+ .forEach(([w,v])=>incTable.innerHTML+=`<tr><td>${w}</td><td>${v}</td></tr>`);
+}
+function clearIncentives(){ if(confirm("Clear all?")){ incentives={}; save(); loadIncentives(); } }
+
+/* REPORT */
+function loadReport(){
+ rb.textContent=bills.length;
+ rs.textContent=bills.reduce((s,b)=>s+b.total,0);
+ ri.textContent=bills.reduce((s,b)=>s+b.items.reduce((x,i)=>x+i.q,0),0);
+}
+</script>
+</body>
+</html>
